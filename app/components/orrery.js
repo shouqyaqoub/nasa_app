@@ -1,22 +1,108 @@
 'use client';
 import React, { useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stars, Html } from '@react-three/drei';
+import { OrbitControls, Stars, Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { useLoader } from '@react-three/fiber';
 
-// Planet data for Earth
+// Increase the scale for distances to make orbits larger (in AU).
+ // 1 AU = 100 units in the 3D scene
+
+// Define the radius of the Sun (in scaled units, e.g., Sun radius is ~109 times Earth's radius)
+const sunRadius = 0.1; // Scaled Sun radius in comparison to Earth
+
+const orbitScale = 1.5; // Scale to spread out the planets.
+const innerPlanetSizeScale = 0.005; // Very small size for inner planets
+const outerPlanetSizeScale = 0.01; // Slightly larger for outer planets
+const outerOrbitScale = 0.2
 const planets = [
+  {
+    name: 'Mercury',
+    e: 0.2056,
+    a: 0.387 * orbitScale,  // Orbital distance scaling
+    i: 7.0,
+    node: 48.3,
+    peri: 77.5,
+    M: 174.8,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Venus',
+    e: 0.0067,
+    a: 0.723 * orbitScale, 
+    i: 3.4,
+    node: 76.7,
+    peri: 131.5,
+    M: 50.1,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
   {
     name: 'Earth',
     e: 0.0167,
-    a: 1.0,
+    a: 1.0 * orbitScale,
     i: 0.0,
     node: 0.0,
     peri: 102.9,
     M: 100.0,
-    epoch: 2451545.0, // J2000.0 reference epoch
-    radius: 6371 / 1000, // Earth radius in scaled units (6371 km / 1000)
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Mars',
+    e: 0.0934,
+    a: 1.524 * orbitScale,
+    i: 1.85,
+    node: 49.6,
+    peri: 336.0,
+    M: 355.5,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Jupiter',
+    e: 0.0489,
+    a: 5.204 * orbitScale, // Large distance scaling
+    i: 1.3,
+    node: 100.5,
+    peri: 14.3,
+    M: 34.3,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Saturn',
+    e: 0.0565,
+    a: 9.582 * orbitScale, // Even farther
+    i: 2.49,
+    node: 113.7,
+    peri: 92.4,
+    M: 50.1,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Uranus',
+    e: 0.0463,
+    a: 19.18 * outerOrbitScale,
+    i: 0.77,
+    node: 74.0,
+    peri: 170.9,
+    M: 142.2,
+    epoch: 2451545.0,
+    radius: 0.07
+  },
+  {
+    name: 'Neptune',
+    e: 0.0097,
+    a: 30.07 * outerOrbitScale,
+    i: 1.77,
+    node: 131.8,
+    peri: 44.97,
+    M: 256.2,
+    epoch: 2451545.0,
+    radius: 0.07
   }
 ];
 
@@ -53,14 +139,8 @@ function keplerianToCartesian(keplerParams, currentEpoch, scale) {
   const n = Math.sqrt(1 / (a * a * a)); // Mean motion (rad/day)
   M = THREE.MathUtils.degToRad(M) + n * timeSinceEpoch;
 
-  // Debugging logs for key values
-  console.log(`Mean Anomaly (M): ${M}, Time Since Epoch: ${timeSinceEpoch}`);
-
   const trueAnomaly = solveKeplersEquation(M, e);
   const r = a * (1 - e * e) / (1 + e * Math.cos(trueAnomaly));
-
-  // Debugging log for distance (r)
-  console.log(`Distance (r): ${r}`);
 
   // Apply scale factor to distance
   const scaledR = r * scale;
@@ -72,30 +152,45 @@ function keplerianToCartesian(keplerParams, currentEpoch, scale) {
     (Math.sin(i) * Math.sin(peri + trueAnomaly)) * scaledR
   );
 
-  // Debugging log for position
-  console.log(`Calculated Position: ${position.x}, ${position.y}, ${position.z}`);
-
   return position;
 }
+
 
 // Orbital Object Component
 const OrbitalObject = ({ keplerParams, scale, radius, textureUrl, name, info }) => {
   const meshRef = useRef();
   const [hovered, setHovered] = useState(false);
   const texture = useLoader(THREE.TextureLoader, textureUrl);
-  const speedMultiplier = 1000; // Speed up the orbit
+  const speedMultiplier = 1; // Speed up the orbit
+  const startTime = useRef(Date.now()); // Save the simulation start time
+  const elapsedSimTime = useRef(0); // To track the elapsed simulated time
 
   // Frame-by-frame update for the object's position
   useFrame(() => {
-    const currentEpoch = Date.now() / 86400000 * speedMultiplier;
+    // Real elapsed time in milliseconds
+    const realElapsedTime = Date.now() - startTime.current;
+
+    // Elapsed simulation time scaled by speedMultiplier (in milliseconds)
+    const simulationElapsedTime = realElapsedTime * speedMultiplier;
+
+    // Convert elapsed simulation time to epoch time (days)
+    const currentEpoch = (simulationElapsedTime / 86400000); // Epoch in days
+
+    // Convert currentEpoch to simulated date
+    const simulatedTime = new Date(Date.now() + currentEpoch * 86400000);
+
+    // Convert the simulated time to a readable date
+    const simulationDate = simulatedTime.toUTCString();
+
+    // Update the orbital position based on the current epoch
     const updatedPosition = keplerianToCartesian(keplerParams, currentEpoch, scale);
 
     if (meshRef.current) {
       meshRef.current.position.set(updatedPosition.x, updatedPosition.y, updatedPosition.z);
     }
 
-    // Log the position for debugging
-    console.log(`${name} Position: `, updatedPosition);
+    // Log the simulation date and current position
+    console.log(`Simulation Date: ${simulationDate}, Position: `, updatedPosition);
   });
 
   return (
@@ -123,46 +218,43 @@ const OrbitalObject = ({ keplerParams, scale, radius, textureUrl, name, info }) 
 
 // Orrery Simulation Component
 const Orrery = ({ NEOData }) => {
-  const scale = 50; // Scale for the orbits
+  const scale = 100; // Scale for the orbits
 
   return (
-    <Canvas camera={{ position: [0, 0, 100], fov: 75 }} style={{ width: '100vw', height: '100vh' }}>
+    <Canvas camera={{ position: [0, 0, 10], fov: 75 }} style={{ width: '100vw', height: '100vh' }}>
       <Stars />
       <OrbitControls />
-      <ambientLight intensity={1.0} /> {/* Increased ambient light intensity */}
-      <pointLight position={[0, 0, 0]} intensity={10} distance={1000} /> {/* Increased point light intensity */}
-      <pointLight position={[50, 50, 50]} intensity={5} /> {/* Additional point light */}
-      <pointLight position={[-50, -50, -50]} intensity={5} /> {/* Additional point light */}
-
-      {/* Sun */}
+      <ambientLight intensity={1.0} />
+      <pointLight position={[0, 0, 0]} intensity={10} distance={5000} />
+      
+      {/* Sun as a small point */}
       <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[10, 32, 32]} />
-        <meshBasicMaterial map={new THREE.TextureLoader().load('/sun.png')} color="yellow" />
+        <sphereGeometry args={[sunRadius, 32, 32]} />
+        <meshBasicMaterial color="yellow" />
       </mesh>
 
-      {/* Earth */}
+      {/* Planets and their orbits */}
       {planets.map((planet, index) => (
         <OrbitalObject
           key={index}
           keplerParams={planet}
-          scale={scale}
-          radius={planet.radius}
-          textureUrl={`/${planet.name.toLowerCase()}.png`}
+          scale={1}
+          radius={planet.radius} // Very small size
+          textureUrl={`/${planet.name.toLowerCase()}.png`} // Use small dots as textures if needed
           name={planet.name}
           info={`Radius: ${planet.radius} km`}
         />
       ))}
 
-      {/* NEOs */}
       {NEOData.map((neo, index) => (
         <OrbitalObject
-          key={index}
-          keplerParams={neo}
-          scale={scale}
-          radius={5} // Increased radius for NEOs
-          name={`NEO ${index + 1}`}
-          info={`Radius: 0.5 km`}
-          textureUrl={'/jupiter.png'} // Use a different texture for NEOs
+        key={index}
+        keplerParams={neo}
+        scale={1}
+        radius={0.04}
+        textureUrl={'/sun.png'}
+        name={`NEO ${neo.index + 1}`}
+        info={'NEO'}
         />
       ))}
     </Canvas>
